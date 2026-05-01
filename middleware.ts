@@ -1,18 +1,31 @@
-import { auth } from "@/lib/auth";
 import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { getToken } from "next-auth/jwt";
 
-export default auth((req) => {
-  const isAdminRoute = req.nextUrl.pathname.startsWith("/admin");
-  const isLoginPage  = req.nextUrl.pathname === "/admin/login";
+export async function middleware(req: NextRequest) {
+  const { pathname } = req.nextUrl;
 
-  if (isAdminRoute && !isLoginPage) {
-    if (!req.auth || (req.auth.user as { role?: string })?.role !== "ADMIN") {
-      return NextResponse.redirect(new URL("/admin/login", req.url));
+  // Allow login page through always — this is critical to prevent loops
+  if (pathname === "/admin/login") {
+    return NextResponse.next();
+  }
+
+  // Only protect /admin routes (not /admin/login)
+  if (pathname.startsWith("/admin")) {
+    const token = await getToken({
+      req,
+      secret: process.env.NEXTAUTH_SECRET,
+    });
+
+    // No token or not an admin → redirect to login
+    if (!token || token.role !== "ADMIN") {
+      const loginUrl = new URL("/admin/login", req.url);
+      return NextResponse.redirect(loginUrl);
     }
   }
 
   return NextResponse.next();
-});
+}
 
 export const config = {
   matcher: ["/admin/:path*"],

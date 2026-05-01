@@ -1,5 +1,4 @@
 import NextAuth from "next-auth";
-import { PrismaAdapter } from "@auth/prisma-adapter";
 import CredentialsProvider from "next-auth/providers/credentials";
 import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
@@ -11,8 +10,9 @@ const loginSchema = z.object({
 });
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
-  adapter: PrismaAdapter(prisma),
+  // Remove PrismaAdapter for credentials-only auth — it causes issues with JWT strategy
   session: { strategy: "jwt" },
+  secret: process.env.NEXTAUTH_SECRET,
   pages: {
     signIn: "/admin/login",
     error:  "/admin/login",
@@ -25,20 +25,30 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         password: { label: "Password", type: "password" },
       },
       async authorize(credentials) {
-        const parsed = loginSchema.safeParse(credentials);
-        if (!parsed.success) return null;
+        try {
+          const parsed = loginSchema.safeParse(credentials);
+          if (!parsed.success) return null;
 
-        const user = await prisma.user.findUnique({
-          where: { email: parsed.data.email },
-        });
+          const user = await prisma.user.findUnique({
+            where: { email: parsed.data.email },
+          });
 
-        if (!user || !user.password) return null;
-        if (user.role !== "ADMIN") return null;
+          if (!user || !user.password) return null;
+          if (user.role !== "ADMIN") return null;
 
-        const valid = await bcrypt.compare(parsed.data.password, user.password);
-        if (!valid) return null;
+          const valid = await bcrypt.compare(parsed.data.password, user.password);
+          if (!valid) return null;
 
-        return { id: user.id, email: user.email, name: user.name, role: user.role };
+          return {
+            id:    user.id,
+            email: user.email,
+            name:  user.name,
+            role:  user.role,
+          };
+        } catch (error) {
+          console.error("Auth error:", error);
+          return null;
+        }
       },
     }),
   ],
@@ -52,10 +62,12 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     },
     async session({ session, token }) {
       if (session.user) {
-        (session.user as { role?: string; id?: string }).role = token.role as string;
-        (session.user as { id?: string }).id = token.id as string;
+        (session.user as { role?: string }).role = token.role as string;
+        (session.user as { id?: string }).id     = token.id as string;
       }
       return session;
     },
   },
+  // Explicitly set trusted hosts to avoid redirect issues on Vercel
+  trustHost: true,
 });

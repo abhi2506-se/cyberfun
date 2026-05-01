@@ -1,12 +1,13 @@
-import { auth } from "@/lib/auth";
-import { redirect } from "next/navigation";
 import { AdminSidebar } from "@/components/admin/sidebar";
 import { AdminHeader } from "@/components/admin/header";
+import { auth } from "@/lib/auth";
+import { redirect } from "next/navigation";
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();
 
-  if (!session || (session.user as { role?: string })?.role !== "ADMIN") {
+  // Middleware handles the redirect, but double-check here as fallback
+  if (!session?.user || (session.user as { role?: string })?.role !== "ADMIN") {
     redirect("/admin/login");
   }
 
